@@ -7,13 +7,14 @@ on:
     branches: [ main, master ]
   schedule:
     # Läuft jeden Tag um 6 Uhr morgens
-    - cron: '0 6 * * 0'
+    - cron: '0 6 * * *'
   workflow_dispatch: # Ermöglicht manuelles Ausführen
 
+# Permissions für GITHUB_TOKEN explizit setzen
 permissions:
-  contents: read
+  contents: write
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   security-audit:
@@ -76,112 +77,169 @@ jobs:
               auditResults = 'Could not read audit results';
             }
             
-            const title = `Security Vulnerabilities Detected - ${new Date().toISOString().split('T')[0]}`;
-            const body = `
-            # Security Alert
-            
-            Automatische Überprüfung hat Sicherheitslücken in den Dependencies gefunden.
-            
-            ## Details:
-            ${auditResults}
-            
-            ## Nächste Schritte:
-            1. Überprüfe die gefundenen Vulnerabilities
-            2. Aktualisiere die betroffenen Packages
-            3. Führe Tests durch
-            4. Schließe diese Issue nach der Behebung
-            
-            **Automatisch erstellt am:** ${new Date().toISOString()}
-            `;
-            
-            // Prüfe ob bereits ein ähnliches Issue existiert
-            const existingIssues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: ['security', 'dependencies']
+            const title = `🚨 Security Vulnerabilities Detected - ${new Date().toISOString().split('T')[0]}`;
+            const body = `# Security Alert
+                  Automatische Überprüfung hat Sicherheitslücken in den Dependencies gefunden.
+                  
+                  ## Details:
+                  ${auditResults}
+                  
+                  ## Nächste Schritte:
+                  1. Überprüfe die gefundenen Vulnerabilities
+                  2. Aktualisiere die betroffenen Packages
+                  3. Führe Tests durch
+                  4. Schließe diese Issue nach der Behebung
+                  
+                  **Automatisch erstellt am:** ${new Date().toISOString()}`;
+                  
+              try {
+              // Prüfe ob bereits ein ähnliches Issue existiert
+              const existingIssues = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            labels: ['security', 'dependencies']
             });
-            
-            const hasOpenSecurityIssue = existingIssues.data.some(issue => 
+              
+              const hasOpenSecurityIssue = existingIssues.data.some(issue =>
               issue.title.includes('Security Vulnerabilities Detected')
-            );
-            
-            if (!hasOpenSecurityIssue) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: title,
-                body: body,
-                labels: ['security', 'dependencies', 'high-priority']
-              });
+              );
+              
+              if (!hasOpenSecurityIssue) {
+              const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: title,
+            body: body,
+            labels: ['security', 'dependencies', 'high-priority']
+            });
+            console.log(`Issue created: ${issue.data.html_url}`);
+            } else {
+              console.log('Security issue already exists, skipping creation');
+            }
+            } catch (error) {
+              console.error('Error creating issue:', error.message);
             }
 
   dependency-update:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      runs-on: ubuntu-latest
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      steps:
+        - name: Checkout code
+          uses: actions/checkout@v4
+          with:
+            token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8
+        - name: Setup pnpm
+          uses: pnpm/action-setup@v4
+          with:
+            version: 8
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
+        - name: Setup Node.js
+          uses: actions/setup-node@v4
+          with:
+            node-version: '20'
+            cache: 'pnpm'
 
-      - name: Check for outdated packages
-        run: |
-          pnpm outdated --format json > outdated.json || echo "Some packages are outdated"
+        - name: Install dependencies
+          run: pnpm install --no-frozen-lockfile
 
-      - name: Create automatic update PR
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require('fs');
-            
-            // Lese outdated packages
-            let outdatedPackages = [];
-            try {
-              const outdatedData = fs.readFileSync('outdated.json', 'utf8');
-              if (outdatedData.trim()) {
-                outdatedPackages = JSON.parse(outdatedData);
-              }
-            } catch (error) {
-              console.log('No outdated packages found or error reading file');
-              return;
-            }
-            
-            if (Object.keys(outdatedPackages).length === 0) {
-              console.log('No outdated packages found');
-              return;
-            }
-            
-            // Erstelle einen neuen Branch
-            const branchName = `dependency-updates-${new Date().getTime()}`;
-            const defaultBranch = context.payload.repository.default_branch;
-            
-            // Hole den aktuellen Commit SHA
-            const { data: refData } = await github.rest.git.getRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `heads/${defaultBranch}`
-            });
-            
-            // Erstelle neuen Branch
-            await github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/heads/${branchName}`,
-              sha: refData.object.sha
-            });
-            
-            console.log(`Branch ${branchName} created for dependency updates`);
+        - name: Check for outdated packages and create PR
+          uses: actions/github-script@v7
+          with:
+            github-token: ${{ secrets.GITHUB_TOKEN }}
+            script: |
+              const { execSync } = require('child_process');
+              const fs = require('fs');
+
+              try {
+                console.log('Checking for outdated packages...');
+
+                // Konfiguriere Git
+                execSync('git config user.name "GitHub Actions"');
+                execSync('git config user.email "actions@github.com"');
+
+                // Erstelle einen neuen Branch
+                const branchName = `auto-dependency-updates-${Date.now()}`;
+                const defaultBranch = context.payload.repository.default_branch || 'main';
+
+                console.log(`Creating branch: ${branchName}`);
+                execSync(`git checkout -b ${branchName}`);
+
+                // Führe Updates durch
+                console.log('Updating dependencies...');
+                try {
+                  execSync('pnpm update --latest', { stdio: 'inherit' });
+                } catch (updateError) {
+                  console.log('Update completed with warnings (normal for dependency updates)');
+                }
+
+                // Prüfe ob es Änderungen gibt
+                const gitStatus = execSync('git status --porcelain', { encoding: 'utf8' });
+
+                if (!gitStatus.trim()) {
+                  console.log('No changes to commit - all dependencies are up to date');
+                  return;
+                }
+
+                console.log('Changes detected:');
+                console.log(gitStatus);
+
+                // Committe die Änderungen
+                execSync('git add package.json pnpm-lock.yaml');
+                execSync('git commit -m "chore(deps): update dependencies\n\nAuto-generated dependency updates"');
+                execSync(`git push origin ${branchName}`);
+
+                // Erstelle Pull Request
+                const prTitle = `🔧 Automated Dependency Updates - ${new Date().toISOString().split('T')[0]}`;
+                const prBody = `
+              # Automated Dependency Updates
+
+              Diese PR enthält automatische Updates für veraltete Dependencies.
+
+                ## Änderungen:
+                \`\`\`
+                ${gitStatus}
+                \`\`\`
+
+              ## Überprüfung notwendig:
+              - [ ] Tests laufen erfolgreich
+              - [ ] Keine Breaking Changes
+              - [ ] Security Updates sind enthalten
+
+                **Automatisch erstellt am:** ${new Date().toISOString()}
+
+                > ⚠️ **Wichtig**: Bitte überprüfe die Änderungen vor dem Merge!`;
+
+                const pullRequest = await github.rest.pulls.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title: prTitle,
+                  head: branchName,
+                  base: defaultBranch,
+                  body: prBody
+                });
+
+                console.log(`Pull Request created: ${pullRequest.data.html_url}`);
+
+                // Weise PR zu
+                await github.rest.issues.addAssignees({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.data.number,
+                  assignees: ['erik-berndt']
+                });
+
+                // Füge Labels hinzu
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pullRequest.data.number,
+                  labels: ['dependencies', 'automated', 'maintenance']
+                });
+
+                } catch (error) {
+                console.error('Error in dependency update process:', error.message);
+                console.error(error.stack);
+                }
