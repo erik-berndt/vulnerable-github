@@ -19,3 +19,16 @@ updates:
           - "*"
         update-types:
           - "security-update"
+        patch-updates:
+          patterns:
+            - "*"
+          update-types:
+            - "version-update:semver-patch"
+          minor-updates:
+            patterns:
+              - "*"
+            update-types:
+              - "version-update:semver-minor"
+        ignore:
+          - dependency-name: "*"
+            update-types: ["version-update:semver-major"]
