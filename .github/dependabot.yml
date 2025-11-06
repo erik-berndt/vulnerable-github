@@ -4,7 +4,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-      day: monday
+      day: thursday
+      time: "8:30"
     open-pull-requests-limit: 10
     reviewers:
       - "erik-berndt"
@@ -19,16 +20,16 @@ updates:
           - "*"
         update-types:
           - "security-update"
-        patch-updates:
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "version-update:semver-patch"
+        minor-updates:
           patterns:
             - "*"
           update-types:
-            - "version-update:semver-patch"
-          minor-updates:
-            patterns:
-              - "*"
-            update-types:
-              - "version-update:semver-minor"
-        ignore:
-          - dependency-name: "*"
-            update-types: ["version-update:semver-major"]
+            - "version-update:semver-minor"
+      ignore:
+        - dependency-name: "*"
+          update-types: ["version-update:semver-major"]
