@@ -11,10 +11,10 @@ on:
   workflow_dispatch: # Ermöglicht manuelles Ausführen
 
 # Permissions für GITHUB_TOKEN explizit setzen
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+#permissions:
+#  contents: write
+#  issues: write
+#  pull-requests: write
 
 jobs:
   security-audit:
@@ -198,19 +198,19 @@ jobs:
 
               Diese PR enthält automatische Updates für veraltete Dependencies.
 
-                ## Änderungen:
-                \`\`\`
-                ${gitStatus}
-                \`\`\`
+              ## Änderungen:
+              \`\`\`
+              ${gitStatus}
+              \`\`\`
 
               ## Überprüfung notwendig:
               - [ ] Tests laufen erfolgreich
               - [ ] Keine Breaking Changes
               - [ ] Security Updates sind enthalten
 
-                **Automatisch erstellt am:** ${new Date().toISOString()}
+              **Automatisch erstellt am:** ${new Date().toISOString()}
 
-                > **Wichtig**: Bitte überprüfe die Änderungen vor dem Merge!`;
+              > **Wichtig**: Bitte überprüfe die Änderungen vor dem Merge!`;
 
                 const pullRequest = await github.rest.pulls.create({
                   owner: context.repo.owner,
